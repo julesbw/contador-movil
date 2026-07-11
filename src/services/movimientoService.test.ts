@@ -89,6 +89,49 @@ describe('MovimientoService', () => {
     expect(repository.registros).toHaveLength(1)
   })
 
+  it('calcula el monto de efectivo desde el desglose al guardar', async () => {
+    const repository = crearRepository()
+    const service = new MovimientoService(repository)
+
+    const movimiento = await service.crear({
+      ...crearDatos(),
+      monto: 1,
+      billetes: {
+        b1000: 1,
+        b500: 2,
+        b200: 1,
+        b100: 0,
+        b50: 1,
+        b20: 2,
+        monedas: 16,
+      },
+    })
+
+    expect(movimiento.monto).toBe(2306)
+  })
+
+  it('normaliza billetes en cero cuando el pago no es efectivo', async () => {
+    const repository = crearRepository()
+    const service = new MovimientoService(repository)
+
+    const movimiento = await service.crear({
+      ...crearDatos(),
+      formaPago: 'tarjeta',
+      monto: 250,
+    })
+
+    expect(movimiento.monto).toBe(250)
+    expect(movimiento.billetes).toEqual({
+      b1000: 0,
+      b500: 0,
+      b200: 0,
+      b100: 0,
+      b50: 0,
+      b20: 0,
+      monedas: 0,
+    })
+  })
+
   it('impide editar o eliminar movimientos exportados', async () => {
     const exportado: Movimiento = {
       ...crearDatos(),

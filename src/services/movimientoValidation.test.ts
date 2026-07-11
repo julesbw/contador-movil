@@ -30,23 +30,47 @@ function crearDatos(
 }
 
 describe('validarMovimiento', () => {
-  it('acepta un movimiento válido y cuadrado', () => {
+  it('acepta un movimiento en efectivo con total contado mayor a cero', () => {
     expect(validarMovimiento(crearDatos())).toEqual({
       errores: [],
       advertencias: [],
     })
   })
 
-  it('genera una advertencia no bloqueante cuando el efectivo no cuadra', () => {
+  it('no advierte descuadres cuando el movimiento es en efectivo', () => {
     const resultado = validarMovimiento(crearDatos({ monto: 120 }))
 
     expect(resultado.errores).toEqual([])
-    expect(resultado.advertencias).toHaveLength(1)
+    expect(resultado.advertencias).toEqual([])
+  })
+
+  it('rechaza efectivo con total contado en cero', () => {
+    const resultado = validarMovimiento(
+      crearDatos({
+        monto: 0,
+        billetes: {
+          b1000: 0,
+          b500: 0,
+          b200: 0,
+          b100: 0,
+          b50: 0,
+          b20: 0,
+          monedas: 0,
+        },
+      }),
+    )
+
+    expect(resultado.errores).toContain('El total contado debe ser mayor a cero')
   })
 
   it('rechaza campos requeridos y montos inválidos', () => {
     const resultado = validarMovimiento(
-      crearDatos({ monto: 0, concepto: ' ', fechaMovimiento: '' }),
+      crearDatos({
+        formaPago: 'tarjeta',
+        monto: 0,
+        concepto: ' ',
+        fechaMovimiento: '',
+      }),
     )
 
     expect(resultado.errores).toContain('El monto debe ser mayor a cero')
@@ -71,6 +95,21 @@ describe('validarMovimiento', () => {
     expect(resultado.errores).toContain(
       'Las cantidades de billetes deben ser números enteros',
     )
+  })
+
+  it('no valida desglose de efectivo cuando la forma de pago no es efectivo', () => {
+    const resultado = validarMovimiento(
+      crearDatos({
+        formaPago: 'transferencia',
+        billetes: {
+          ...crearDatos().billetes,
+          b100: -1,
+          b50: 1.5,
+        },
+      }),
+    )
+
+    expect(resultado.errores).toEqual([])
   })
 })
 

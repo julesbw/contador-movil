@@ -9,7 +9,10 @@ import {
   movimientoService,
   MovimientoValidationError,
 } from '../services/movimientoService'
-import type { DatosMovimiento } from '../services/movimientoValidation'
+import {
+  calcularTotalBilletes,
+  type DatosMovimiento,
+} from '../services/movimientoValidation'
 
 const DENOMINACIONES: Array<{
   key: keyof Billetes
@@ -24,6 +27,22 @@ const DENOMINACIONES: Array<{
   { key: 'b20', label: '$20', valor: 20 },
   { key: 'monedas', label: 'Monedas', valor: 1 },
 ]
+
+const BILLETES_EN_CERO: Billetes = {
+  b1000: 0,
+  b500: 0,
+  b200: 0,
+  b100: 0,
+  b50: 0,
+  b20: 0,
+  monedas: 0,
+}
+
+const formatoMoneda = new Intl.NumberFormat('es-MX', {
+  currency: 'MXN',
+  maximumFractionDigits: 2,
+  style: 'currency',
+})
 
 type ValoresFormulario = {
   fechaMovimiento: string
@@ -80,23 +99,27 @@ export function MovimientoForm({
   const [advertencia, setAdvertencia] = useState<string>()
   const [guardando, setGuardando] = useState(false)
 
+  const esEfectivo = valores.formaPago === 'efectivo'
+  const billetesNumericos: Billetes = {
+    b1000: Number(valores.billetes.b1000),
+    b500: Number(valores.billetes.b500),
+    b200: Number(valores.billetes.b200),
+    b100: Number(valores.billetes.b100),
+    b50: Number(valores.billetes.b50),
+    b20: Number(valores.billetes.b20),
+    monedas: Number(valores.billetes.monedas),
+  }
+  const totalContado = calcularTotalBilletes(billetesNumericos)
+
   function crearDatos(): DatosMovimiento {
     return {
       tipo: movimiento?.tipo ?? 'salida',
       fechaMovimiento: valores.fechaMovimiento,
-      monto: Number(valores.monto),
+      monto: esEfectivo ? totalContado : Number(valores.monto),
       concepto: valores.concepto,
       categoria: valores.categoria,
       formaPago: valores.formaPago,
-      billetes: {
-        b1000: Number(valores.billetes.b1000),
-        b500: Number(valores.billetes.b500),
-        b200: Number(valores.billetes.b200),
-        b100: Number(valores.billetes.b100),
-        b50: Number(valores.billetes.b50),
-        b20: Number(valores.billetes.b20),
-        monedas: Number(valores.billetes.monedas),
-      },
+      billetes: esEfectivo ? billetesNumericos : BILLETES_EN_CERO,
       notas: valores.notas,
     }
   }
@@ -175,21 +198,23 @@ export function MovimientoForm({
           />
         </label>
 
-        <label className="space-y-2 text-sm font-medium text-slate-700">
-          Monto
-          <input
-            className="field"
-            type="number"
-            inputMode="decimal"
-            min="0.01"
-            step="0.01"
-            required
-            value={valores.monto}
-            onChange={(event) =>
-              setValores({ ...valores, monto: event.target.value })
-            }
-          />
-        </label>
+        {!esEfectivo && (
+          <label className="space-y-2 text-sm font-medium text-slate-700">
+            Monto
+            <input
+              className="field"
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              required
+              value={valores.monto}
+              onChange={(event) =>
+                setValores({ ...valores, monto: event.target.value })
+              }
+            />
+          </label>
+        )}
       </div>
 
       <label className="space-y-2 text-sm font-medium text-slate-700">
@@ -244,18 +269,18 @@ export function MovimientoForm({
         </label>
       </div>
 
-      {valores.formaPago === 'efectivo' && (
+      {esEfectivo && (
         <fieldset>
           <legend className="text-sm font-semibold text-slate-900">
             Desglose de efectivo
           </legend>
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-3 space-y-3">
             {DENOMINACIONES.map(({ key, label, valor }) => (
               <label
-                className="space-y-1 text-xs font-medium text-slate-600"
+                className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs font-medium text-slate-600 sm:grid-cols-[7rem_1fr_9rem]"
                 key={key}
               >
-                {label}
+                <span className="self-center">{label}</span>
                 <input
                   className="field"
                   type="number"
@@ -278,8 +303,24 @@ export function MovimientoForm({
                     })
                   }
                 />
+                <span className="self-center text-right text-sm font-semibold text-slate-800">
+                  {key === 'monedas'
+                    ? `= ${formatoMoneda.format(billetesNumericos[key])}`
+                    : `× ${billetesNumericos[key] || 0} = ${formatoMoneda.format(
+                        billetesNumericos[key] * valor,
+                      )}`}
+                </span>
               </label>
             ))}
+          </div>
+          <div className="mt-4 rounded-2xl bg-slate-900 p-4 text-white">
+            <p className="text-sm text-slate-300">Total contado</p>
+            <p className="mt-1 text-3xl font-bold">
+              {formatoMoneda.format(totalContado)}
+            </p>
+            <p className="mt-2 text-sm text-slate-300">
+              Este total se usará como monto del movimiento.
+            </p>
           </div>
         </fieldset>
       )}

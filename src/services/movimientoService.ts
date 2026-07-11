@@ -5,10 +5,35 @@ import {
 } from '../db/movimientosRepo'
 import type { Movimiento } from '../models/Movimiento'
 import {
+  calcularTotalBilletes,
   validarMovimiento,
   type DatosMovimiento,
   type ResultadoValidacion,
 } from './movimientoValidation'
+
+const BILLETES_EN_CERO: Movimiento['billetes'] = {
+  b1000: 0,
+  b500: 0,
+  b200: 0,
+  b100: 0,
+  b50: 0,
+  b20: 0,
+  monedas: 0,
+}
+
+function normalizarDatos(datos: DatosMovimiento): DatosMovimiento {
+  if (datos.formaPago === 'efectivo') {
+    return {
+      ...datos,
+      monto: calcularTotalBilletes(datos.billetes),
+    }
+  }
+
+  return {
+    ...datos,
+    billetes: { ...BILLETES_EN_CERO },
+  }
+}
 
 export class MovimientoValidationError extends Error {
   readonly errores: string[]
@@ -42,17 +67,19 @@ export class MovimientoService {
   }
 
   validar(datos: DatosMovimiento): ResultadoValidacion {
-    return validarMovimiento(datos)
+    return validarMovimiento(normalizarDatos(datos))
   }
 
   async crear(datos: DatosMovimiento): Promise<Movimiento> {
-    this.validarSinErrores(datos)
+    const datosNormalizados = normalizarDatos(datos)
+
+    this.validarSinErrores(datosNormalizados)
 
     const ahora = new Date().toISOString()
     const movimiento: Movimiento = {
-      ...datos,
-      concepto: datos.concepto.trim(),
-      notas: datos.notas?.trim() || undefined,
+      ...datosNormalizados,
+      concepto: datosNormalizados.concepto.trim(),
+      notas: datosNormalizados.notas?.trim() || undefined,
       id: crypto.randomUUID(),
       estadoExportacion: 'pendiente',
       creadoEn: ahora,
@@ -70,13 +97,14 @@ export class MovimientoService {
 
   async actualizar(id: string, datos: DatosMovimiento): Promise<Movimiento> {
     const movimientoActual = await this.obtenerEditable(id)
+    const datosNormalizados = normalizarDatos(datos)
 
-    this.validarSinErrores(datos)
+    this.validarSinErrores(datosNormalizados)
 
     const cambios = {
-      ...datos,
-      concepto: datos.concepto.trim(),
-      notas: datos.notas?.trim() || undefined,
+      ...datosNormalizados,
+      concepto: datosNormalizados.concepto.trim(),
+      notas: datosNormalizados.notas?.trim() || undefined,
       actualizadoEn: new Date().toISOString(),
     }
     const movimientoActualizado: Movimiento = {

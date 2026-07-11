@@ -45,7 +45,10 @@ export function validarMovimiento(
     errores.push('El tipo de movimiento no es válido')
   }
 
-  if (!Number.isFinite(movimiento.monto) || movimiento.monto <= 0) {
+  if (
+    movimiento.formaPago !== 'efectivo' &&
+    (!Number.isFinite(movimiento.monto) || movimiento.monto <= 0)
+  ) {
     errores.push('El monto debe ser mayor a cero')
   }
 
@@ -69,31 +72,27 @@ export function validarMovimiento(
     [keyof Billetes, number]
   >
 
-  if (
-    denominaciones.some(
-      ([, cantidad]) => !Number.isFinite(cantidad) || cantidad < 0,
-    )
-  ) {
-    errores.push('El desglose de efectivo contiene valores inválidos')
-  }
+  if (movimiento.formaPago === 'efectivo') {
+    if (
+      denominaciones.some(
+        ([, cantidad]) => !Number.isFinite(cantidad) || cantidad < 0,
+      )
+    ) {
+      errores.push('El desglose de efectivo contiene valores inválidos')
+    }
 
-  if (
-    denominaciones.some(
-      ([denominacion, cantidad]) =>
-        denominacion !== 'monedas' && !Number.isInteger(cantidad),
-    )
-  ) {
-    errores.push('Las cantidades de billetes deben ser números enteros')
-  }
+    if (
+      denominaciones.some(
+        ([denominacion, cantidad]) =>
+          denominacion !== 'monedas' && !Number.isInteger(cantidad),
+      )
+    ) {
+      errores.push('Las cantidades de billetes deben ser números enteros')
+    }
 
-  if (
-    movimiento.formaPago === 'efectivo' &&
-    errores.length === 0 &&
-    calcularTotalBilletes(movimiento.billetes) !== movimiento.monto
-  ) {
-    advertencias.push(
-      'El desglose de efectivo no cuadra con el monto capturado',
-    )
+    if (errores.length === 0 && calcularTotalBilletes(movimiento.billetes) <= 0) {
+      errores.push('El total contado debe ser mayor a cero')
+    }
   }
 
   return { errores, advertencias }
