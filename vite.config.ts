@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import packageJson from './package.json' with { type: 'json' }
 
 export default defineConfig({
   plugins: [
@@ -44,4 +45,11 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __COMMIT_SHA__: JSON.stringify(
+      process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
+    ),
+  },
 })

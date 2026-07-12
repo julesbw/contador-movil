@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { AppInfoSection } from '../components/AppInfoSection'
 import type { InstalacionPwa } from '../hooks/usePwaInstall'
 import { configService } from '../services/configService'
 
@@ -140,6 +141,8 @@ export function Ajustes({ instalacion }: AjustesProps) {
           </button>
         )}
       </div>
+
+      <AppInfoSection />
     </section>
   )
 }
