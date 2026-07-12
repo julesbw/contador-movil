@@ -75,13 +75,13 @@ function crearValoresIniciales(movimiento?: Movimiento): ValoresFormulario {
     categoria: movimiento?.categoria ?? CATEGORIAS[0],
     formaPago: movimiento?.formaPago ?? 'efectivo',
     billetes: {
-      b1000: String(movimiento?.billetes.b1000 ?? 0),
-      b500: String(movimiento?.billetes.b500 ?? 0),
-      b200: String(movimiento?.billetes.b200 ?? 0),
-      b100: String(movimiento?.billetes.b100 ?? 0),
-      b50: String(movimiento?.billetes.b50 ?? 0),
-      b20: String(movimiento?.billetes.b20 ?? 0),
-      monedas: String(movimiento?.billetes.monedas ?? 0),
+      b1000: movimiento ? String(movimiento.billetes.b1000) : '',
+      b500: movimiento ? String(movimiento.billetes.b500) : '',
+      b200: movimiento ? String(movimiento.billetes.b200) : '',
+      b100: movimiento ? String(movimiento.billetes.b100) : '',
+      b50: movimiento ? String(movimiento.billetes.b50) : '',
+      b20: movimiento ? String(movimiento.billetes.b20) : '',
+      monedas: movimiento ? String(movimiento.billetes.monedas) : '',
     },
     notas: movimiento?.notas ?? '',
   }
@@ -182,20 +182,22 @@ export function MovimientoForm({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="space-y-2 text-sm font-medium text-slate-700">
+        <label className="min-w-0 space-y-2 text-sm font-medium text-slate-700">
           Fecha
-          <input
-            className="field"
-            type="date"
-            required
-            value={valores.fechaMovimiento}
-            onChange={(event) =>
-              setValores({
-                ...valores,
-                fechaMovimiento: event.target.value,
-              })
-            }
-          />
+          <div className="mt-2 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2.5 transition focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/20">
+            <input
+              className="block w-full min-w-0 border-0 bg-transparent p-0 text-base text-slate-950 outline-none"
+              type="date"
+              required
+              value={valores.fechaMovimiento}
+              onChange={(event) =>
+                setValores({
+                  ...valores,
+                  fechaMovimiento: event.target.value,
+                })
+              }
+            />
+          </div>
         </label>
 
         {!esEfectivo && (
@@ -270,22 +272,34 @@ export function MovimientoForm({
       </div>
 
       {esEfectivo && (
-        <fieldset>
-          <legend className="text-sm font-semibold text-slate-900">
+        <fieldset className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <legend className="sr-only">
             Desglose de efectivo
           </legend>
-          <div className="mt-3 space-y-3">
+          <div className="px-4 py-3 sm:px-5">
+            <p
+              aria-hidden="true"
+              className="text-sm font-semibold text-slate-900"
+            >
+              Desglose de efectivo
+            </p>
+          </div>
+          <div className="divide-y divide-slate-100 border-t border-slate-200 px-4 sm:px-5">
             {DENOMINACIONES.map(({ key, label, valor }) => (
               <label
-                className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs font-medium text-slate-600 sm:grid-cols-[7rem_1fr_9rem]"
+                className="grid min-h-14 grid-cols-[3.5rem_auto_4rem_auto_minmax(0,1fr)] items-center gap-1 text-sm sm:grid-cols-[6rem_auto_5rem_auto_minmax(0,1fr)] sm:gap-2"
                 key={key}
               >
-                <span className="self-center">{label}</span>
+                <span className="font-medium text-slate-700">{label}</span>
+                <span aria-hidden="true" className="text-slate-400">
+                  ×
+                </span>
                 <input
-                  className="field"
+                  className="h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-base text-slate-950 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
                   type="number"
                   inputMode={key === 'monedas' ? 'decimal' : 'numeric'}
                   min="0"
+                  placeholder="0"
                   step={key === 'monedas' ? '0.01' : '1'}
                   aria-label={
                     key === 'monedas'
@@ -303,23 +317,30 @@ export function MovimientoForm({
                     })
                   }
                 />
-                <span className="self-center text-right text-sm font-semibold text-slate-800">
+                <span aria-hidden="true" className="text-slate-400">
+                  =
+                </span>
+                <span className="min-w-0 text-right font-semibold tabular-nums text-slate-800">
                   {key === 'monedas'
-                    ? `= ${formatoMoneda.format(billetesNumericos[key])}`
-                    : `× ${billetesNumericos[key] || 0} = ${formatoMoneda.format(
+                    ? formatoMoneda.format(billetesNumericos[key])
+                    : formatoMoneda.format(
                         billetesNumericos[key] * valor,
-                      )}`}
+                      )}
                 </span>
               </label>
             ))}
           </div>
-          <div className="mt-4 rounded-2xl bg-slate-900 p-4 text-white">
-            <p className="text-sm text-slate-300">Total contado</p>
-            <p className="mt-1 text-3xl font-bold">
+          <div className="flex items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">
+                Total contado
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Monto del movimiento
+              </p>
+            </div>
+            <p className="text-xl font-bold tabular-nums text-slate-950 sm:text-2xl">
               {formatoMoneda.format(totalContado)}
-            </p>
-            <p className="mt-2 text-sm text-slate-300">
-              Este total se usará como monto del movimiento.
             </p>
           </div>
         </fieldset>

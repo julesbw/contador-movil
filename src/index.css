@@ -34,6 +34,14 @@ button:disabled {
   opacity: 0.5;
 }
 
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @layer components {
   .field {
     @apply mt-2 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20;
