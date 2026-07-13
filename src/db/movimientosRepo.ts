@@ -10,6 +10,13 @@ export type CambiosMovimiento = Partial<
   Omit<Movimiento, 'id' | 'creadoEn'>
 >
 
+export class MovimientosLoteDesactualizadoError extends Error {
+  constructor() {
+    super('Uno o más movimientos del lote ya no están pendientes')
+    this.name = 'MovimientosLoteDesactualizadoError'
+  }
+}
+
 export interface MovimientosRepository {
   guardar(movimiento: Movimiento): Promise<string>
   obtenerPorId(id: string): Promise<Movimiento | undefined>
@@ -71,7 +78,7 @@ export const movimientosRepo: MovimientosRepository = {
       const movimientos = await db.movimientos.bulkGet(ids)
 
       if (movimientos.some((movimiento) => !movimiento)) {
-        throw new Error('Uno o más movimientos del lote ya no existen')
+        throw new MovimientosLoteDesactualizadoError()
       }
 
       if (
@@ -79,7 +86,7 @@ export const movimientosRepo: MovimientosRepository = {
           (movimiento) => movimiento?.estadoExportacion !== 'pendiente',
         )
       ) {
-        throw new Error('Uno o más movimientos del lote ya fueron exportados')
+        throw new MovimientosLoteDesactualizadoError()
       }
 
       await db.movimientos.bulkUpdate(

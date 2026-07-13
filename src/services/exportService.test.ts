@@ -84,6 +84,47 @@ function crearRepository(
   }
 }
 
+function crearRepositoryConRegistros(registros: Movimiento[]): {
+  repository: MovimientosRepository
+  idsMarcados: string[][]
+} {
+  const idsMarcados: string[][] = []
+  const repository: MovimientosRepository = {
+    guardar(movimiento) {
+      registros.push(movimiento)
+      return Promise.resolve(movimiento.id)
+    },
+    obtenerPorId(id) {
+      return Promise.resolve(registros.find((movimiento) => movimiento.id === id))
+    },
+    obtenerPagina() {
+      return Promise.resolve(registros)
+    },
+    obtenerPendientes() {
+      return Promise.resolve(
+        registros.filter(
+          ({ estadoExportacion }) => estadoExportacion === 'pendiente',
+        ),
+      )
+    },
+    obtenerTodos() {
+      return Promise.resolve(registros)
+    },
+    marcarExportados(ids) {
+      idsMarcados.push([...ids])
+      return Promise.resolve()
+    },
+    actualizar() {
+      return Promise.resolve()
+    },
+    eliminar() {
+      return Promise.resolve()
+    },
+  }
+
+  return { repository, idsMarcados }
+}
+
 describe('ExportService', () => {
   it('genera el contrato JSON con configuración y nombres snake_case', async () => {
     const movimiento = crearMovimiento()
@@ -108,5 +149,89 @@ describe('ExportService', () => {
       forma_pago: 'tarjeta',
       creado_en: movimiento.creadoEn,
     })
+  })
+
+  it('genera el JSON únicamente con los IDs seleccionados y en orden', async () => {
+    const antiguo = {
+      ...crearMovimiento(),
+      id: 'antiguo',
+      fechaMovimiento: '2026-07-08',
+    }
+    const reciente = {
+      ...crearMovimiento(),
+      id: 'reciente',
+      fechaMovimiento: '2026-07-10',
+    }
+    const omitido = {
+      ...crearMovimiento(),
+      id: 'omitido',
+      fechaMovimiento: '2026-07-09',
+    }
+    const { repository } = crearRepositoryConRegistros([
+      antiguo,
+      reciente,
+      omitido,
+    ])
+    const service = new ExportService(repository, crearConfigService())
+
+    const lote = await service.prepararPendientesSeleccionados([
+      antiguo.id,
+      reciente.id,
+    ])
+
+    expect(lote.movimientoIds).toEqual([reciente.id, antiguo.id])
+    expect(lote.archivo.total_movimientos).toBe(2)
+    expect(lote.archivo.movimientos.map(({ id }) => id)).toEqual([
+      reciente.id,
+      antiguo.id,
+    ])
+  })
+
+  it('rechaza una selección vacía o con IDs que ya no están pendientes', async () => {
+    const pendiente = crearMovimiento()
+    const { repository } = crearRepositoryConRegistros([pendiente])
+    const service = new ExportService(repository, crearConfigService())
+
+    await expect(
+      service.prepararPendientesSeleccionados([]),
+    ).rejects.toThrow('Selecciona al menos un movimiento')
+    await expect(
+      service.prepararPendientesSeleccionados([pendiente.id, 'inexistente']),
+    ).rejects.toThrow('ya no están pendientes')
+  })
+
+  it('confirma únicamente los IDs contenidos en el lote', async () => {
+    const primero = { ...crearMovimiento(), id: 'primero' }
+    const segundo = { ...crearMovimiento(), id: 'segundo' }
+    const { repository, idsMarcados } = crearRepositoryConRegistros([
+      primero,
+      segundo,
+    ])
+    const service = new ExportService(repository, crearConfigService())
+    const lote = await service.prepararPendientesSeleccionados([primero.id])
+
+    await service.confirmarPendientes(lote)
+
+    expect(idsMarcados).toEqual([[primero.id]])
+  })
+
+  it('el respaldo incluye pendientes y exportados sin marcar estados', async () => {
+    const pendiente = crearMovimiento()
+    const exportado = {
+      ...crearMovimiento(),
+      id: crypto.randomUUID(),
+      estadoExportacion: 'exportado' as const,
+    }
+    const { repository, idsMarcados } = crearRepositoryConRegistros([
+      pendiente,
+      exportado,
+    ])
+    const service = new ExportService(repository, crearConfigService())
+
+    const respaldo = await service.prepararRespaldo()
+
+    expect(respaldo.archivo.total_movimientos).toBe(2)
+    expect(respaldo.movimientoIds).toEqual([])
+    expect(idsMarcados).toEqual([])
   })
 })

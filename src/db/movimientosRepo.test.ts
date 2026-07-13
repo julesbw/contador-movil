@@ -78,4 +78,46 @@ describe('movimientosRepo', () => {
       ),
     ).toBe(true)
   })
+
+  it('mantiene pendiente un movimiento que no pertenece al lote', async () => {
+    await movimientosRepo.guardar(crearMovimiento('seleccionado'))
+    await movimientosRepo.guardar(crearMovimiento('pendiente'))
+
+    await movimientosRepo.marcarExportados(
+      ['seleccionado'],
+      'lote-parcial',
+      '2026-07-08T12:00:00.000Z',
+    )
+
+    expect(await movimientosRepo.obtenerPorId('seleccionado')).toMatchObject({
+      estadoExportacion: 'exportado',
+      loteExportacionId: 'lote-parcial',
+    })
+    const noSeleccionado = await movimientosRepo.obtenerPorId('pendiente')
+
+    expect(noSeleccionado).toMatchObject({
+      estadoExportacion: 'pendiente',
+    })
+    expect(noSeleccionado?.loteExportacionId).toBeUndefined()
+  })
+
+  it('no actualiza parcialmente un lote desactualizado', async () => {
+    await movimientosRepo.guardar(crearMovimiento('vigente'))
+    await movimientosRepo.guardar({
+      ...crearMovimiento('ya-exportado'),
+      estadoExportacion: 'exportado',
+    })
+
+    await expect(
+      movimientosRepo.marcarExportados(
+        ['vigente', 'ya-exportado'],
+        'lote-invalido',
+        '2026-07-08T12:00:00.000Z',
+      ),
+    ).rejects.toThrow('ya no están pendientes')
+
+    expect(await movimientosRepo.obtenerPorId('vigente')).toMatchObject({
+      estadoExportacion: 'pendiente',
+    })
+  })
 })

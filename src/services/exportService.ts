@@ -1,4 +1,5 @@
 import {
+  MovimientosLoteDesactualizadoError,
   movimientosRepo,
   type MovimientosRepository,
 } from '../db/movimientosRepo'
@@ -7,6 +8,7 @@ import {
   configService,
   type ConfigService,
 } from './configService'
+import { ordenarPendientesPorFecha } from './exportSelection'
 
 type MovimientoExportado = {
   id: string
@@ -39,6 +41,13 @@ export type LotePendiente = {
   archivo: ArchivoExportacion
   movimientoIds: string[]
   nombreArchivo: string
+}
+
+export class PendientesDesactualizadosError extends Error {
+  constructor() {
+    super('Uno o más movimientos ya no están pendientes')
+    this.name = 'PendientesDesactualizadosError'
+  }
 }
 
 function mapearMovimiento(movimiento: Movimiento): MovimientoExportado {
@@ -74,10 +83,48 @@ export class ExportService {
   }
 
   async prepararPendientes(): Promise<LotePendiente> {
-    const movimientos = await this.repository.obtenerPendientes()
+    const movimientos = await this.obtenerPendientes()
 
     if (movimientos.length === 0) {
       throw new Error('No hay movimientos pendientes para exportar')
+    }
+
+    const loteExportacionId = crypto.randomUUID()
+    const archivo = await this.crearArchivo(movimientos, loteExportacionId)
+
+    return {
+      archivo,
+      movimientoIds: movimientos.map(({ id }) => id),
+      nombreArchivo: `movimientos-pendientes-${fechaParaNombre(archivo.fecha_exportacion)}.json`,
+    }
+  }
+
+  async obtenerPendientes(): Promise<Movimiento[]> {
+    const movimientos = await this.repository.obtenerPendientes()
+
+    return ordenarPendientesPorFecha(movimientos)
+  }
+
+  async prepararPendientesSeleccionados(
+    movimientoIds: readonly string[],
+  ): Promise<LotePendiente> {
+    if (movimientoIds.length === 0) {
+      throw new Error('Selecciona al menos un movimiento para exportar')
+    }
+
+    const idsSolicitados = new Set(movimientoIds)
+
+    if (idsSolicitados.size !== movimientoIds.length) {
+      throw new PendientesDesactualizadosError()
+    }
+
+    const pendientes = await this.obtenerPendientes()
+    const movimientos = pendientes.filter(({ id }) =>
+      idsSolicitados.has(id),
+    )
+
+    if (movimientos.length !== idsSolicitados.size) {
+      throw new PendientesDesactualizadosError()
     }
 
     const loteExportacionId = crypto.randomUUID()
@@ -109,16 +156,24 @@ export class ExportService {
     }
   }
 
-  confirmarPendientes(lote: LotePendiente): Promise<void> {
+  async confirmarPendientes(lote: LotePendiente): Promise<void> {
     if (lote.movimientoIds.length === 0) {
       throw new Error('El lote no contiene movimientos pendientes')
     }
 
-    return this.repository.marcarExportados(
-      lote.movimientoIds,
-      lote.archivo.lote_exportacion_id,
-      new Date().toISOString(),
-    )
+    try {
+      await this.repository.marcarExportados(
+        lote.movimientoIds,
+        lote.archivo.lote_exportacion_id,
+        new Date().toISOString(),
+      )
+    } catch (cause: unknown) {
+      if (cause instanceof MovimientosLoteDesactualizadoError) {
+        throw new PendientesDesactualizadosError()
+      }
+
+      throw cause
+    }
   }
 
   private async crearArchivo(
