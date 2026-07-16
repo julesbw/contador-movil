@@ -56,11 +56,11 @@ button:disabled {
   }
 
   .nav-item {
-    @apply shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100;
+    @apply shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700;
   }
 
   .nav-active {
-    @apply shrink-0 rounded-lg bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800;
+    @apply shrink-0 rounded-lg bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700;
   }
 
   .badge {

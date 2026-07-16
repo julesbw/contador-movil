@@ -13,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: 'Contador Móvil',
         short_name: 'Contador',
-        description: 'Registro offline de movimientos del contador',
+        description: 'Movimientos offline y consulta privada de Caja',
         theme_color: '#0f766e',
         background_color: '#f8fafc',
         display: 'standalone',

@@ -43,6 +43,10 @@ function crearConfigService(): ConfigService {
       valores.set(key, value)
       return Promise.resolve()
     },
+    eliminar(key) {
+      valores.delete(key)
+      return Promise.resolve()
+    },
     obtenerTodo() {
       return Promise.resolve(
         [...valores].map(([key, value]) => ({ key, value })),

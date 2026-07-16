@@ -1,7 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { AppInfoSection } from '../components/AppInfoSection'
+import { BridgeProfilesSection } from '../components/BridgeProfilesSection'
+import { StoragePersistenceWarning } from '../components/StoragePersistenceWarning'
 import type { InstalacionPwa } from '../hooks/usePwaInstall'
 import { configService } from '../services/configService'
+import {
+  ensurePersistentStorage,
+  type EstadoPersistencia,
+} from '../services/storagePersistService'
 
 type AjustesProps = {
   instalacion: InstalacionPwa
@@ -14,6 +20,8 @@ export function Ajustes({ instalacion }: AjustesProps) {
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string>()
   const [error, setError] = useState<string>()
+  const [storagePersistence, setStoragePersistence] =
+    useState<EstadoPersistencia>()
 
   useEffect(() => {
     let activo = true
@@ -44,6 +52,26 @@ export function Ajustes({ instalacion }: AjustesProps) {
     }
   }, [])
 
+  useEffect(() => {
+    let activo = true
+
+    ensurePersistentStorage()
+      .then((estado) => {
+        if (activo) {
+          setStoragePersistence(estado)
+        }
+      })
+      .catch(() => {
+        if (activo) {
+          setStoragePersistence('denegada')
+        }
+      })
+
+    return () => {
+      activo = false
+    }
+  }, [])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setGuardando(true)
@@ -66,7 +94,7 @@ export function Ajustes({ instalacion }: AjustesProps) {
     <section>
       <h2 className="text-2xl font-bold text-slate-950">Ajustes</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Configura los datos que acompañarán tus exportaciones.
+        Configura exportaciones, almacenamiento y computadoras de Caja.
       </p>
 
       <form
@@ -119,6 +147,8 @@ export function Ajustes({ instalacion }: AjustesProps) {
         </button>
       </form>
 
+      <BridgeProfilesSection />
+
       <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 sm:p-7">
         <h3 className="font-semibold text-slate-950">Instalación</h3>
         <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -140,6 +170,8 @@ export function Ajustes({ instalacion }: AjustesProps) {
             Instalar aplicación
           </button>
         )}
+
+        <StoragePersistenceWarning state={storagePersistence} />
       </div>
 
       <AppInfoSection />

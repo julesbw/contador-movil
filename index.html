@@ -8,8 +8,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0f766e" />
     <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: ws://localhost:*; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta
       name="description"
-      content="Registro offline de movimientos del contador"
+      content="Movimientos offline y consulta privada de Caja"
     />
     <title>Contador Móvil</title>
   </head>

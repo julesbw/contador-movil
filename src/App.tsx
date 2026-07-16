@@ -3,6 +3,7 @@ import { InstallPrompt } from './components/InstallPrompt'
 import { usePwaInstall } from './hooks/usePwaInstall'
 import type { Movimiento } from './models/Movimiento'
 import { Ajustes } from './pages/Ajustes'
+import { Caja } from './pages/Caja'
 import { Exportar } from './pages/Exportar'
 import { Movimientos } from './pages/Movimientos'
 import { NuevoMovimiento } from './pages/NuevoMovimiento'
@@ -10,7 +11,7 @@ import { configService } from './services/configService'
 import { ensurePersistentStorage } from './services/storagePersistService'
 
 type EstadoInicio = 'iniciando' | 'lista' | 'error'
-type Pagina = 'nuevo' | 'movimientos' | 'exportar' | 'ajustes'
+type Pagina = 'nuevo' | 'movimientos' | 'caja' | 'exportar' | 'ajustes'
 
 function App() {
   const [estadoInicio, setEstadoInicio] = useState<EstadoInicio>('iniciando')
@@ -71,7 +72,7 @@ function App() {
             Contador Móvil
           </p>
           <h1 className="mt-1 text-xl font-bold text-slate-950">
-            Registro de movimientos
+            Movimientos y Caja
           </h1>
         </div>
       </header>
@@ -85,6 +86,7 @@ function App() {
         <div className="mx-auto flex max-w-3xl gap-2 overflow-x-auto px-4 py-3 sm:px-6">
           <button
             className={pagina === 'nuevo' ? 'nav-active' : 'nav-item'}
+            aria-current={pagina === 'nuevo' ? 'page' : undefined}
             type="button"
             onClick={() => setPagina('nuevo')}
           >
@@ -92,13 +94,23 @@ function App() {
           </button>
           <button
             className={pagina === 'movimientos' ? 'nav-active' : 'nav-item'}
+            aria-current={pagina === 'movimientos' ? 'page' : undefined}
             type="button"
             onClick={() => setPagina('movimientos')}
           >
             Movimientos
           </button>
           <button
+            className={pagina === 'caja' ? 'nav-active' : 'nav-item'}
+            aria-current={pagina === 'caja' ? 'page' : undefined}
+            type="button"
+            onClick={() => setPagina('caja')}
+          >
+            Caja
+          </button>
+          <button
             className={pagina === 'exportar' ? 'nav-active' : 'nav-item'}
+            aria-current={pagina === 'exportar' ? 'page' : undefined}
             type="button"
             onClick={() => setPagina('exportar')}
           >
@@ -106,6 +118,7 @@ function App() {
           </button>
           <button
             className={pagina === 'ajustes' ? 'nav-active' : 'nav-item'}
+            aria-current={pagina === 'ajustes' ? 'page' : undefined}
             type="button"
             onClick={() => setPagina('ajustes')}
           >
@@ -119,6 +132,9 @@ function App() {
           <NuevoMovimiento onGuardado={handleGuardado} />
         )}
         {pagina === 'movimientos' && <Movimientos revision={revision} />}
+        {pagina === 'caja' && (
+          <Caja onOpenSettings={() => setPagina('ajustes')} />
+        )}
         {pagina === 'exportar' && (
           <Exportar
             onExportacionConfirmada={() =>
