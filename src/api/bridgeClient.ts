@@ -180,7 +180,8 @@ export class BridgeClient {
     }, this.timeoutMs)
 
     try {
-      const response = await this.fetchImplementation(
+      const response = await this.fetchImplementation.call(
+        globalThis,
         `${normalizedBaseUrl}${path}`,
         {
           method: 'GET',

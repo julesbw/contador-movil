@@ -102,6 +102,23 @@ describe('BridgeClient', () => {
     expect(String(mock.mock.calls[0]?.[0])).not.toContain(token)
   })
 
+  it('invoca fetch con globalThis como receptor para WebKit', async () => {
+    const fetchImplementation = function (this: unknown) {
+      if (this !== globalThis) {
+        return Promise.reject(
+          new TypeError('Can only call Window.fetch on instances of Window'),
+        )
+      }
+
+      return Promise.resolve(jsonResponse(sourceResponse))
+    } as FetchImplementation
+    const client = new BridgeClient(fetchImplementation)
+
+    await expect(client.obtenerSource(baseUrl, token)).resolves.toEqual(
+      sourceResponse,
+    )
+  })
+
   it('consulta latest y valida su contrato', async () => {
     const { fetchImplementation, mock } = createFetch(
       jsonResponse(snapshotResponse),
