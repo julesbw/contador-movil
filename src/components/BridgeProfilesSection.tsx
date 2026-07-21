@@ -11,6 +11,7 @@ import {
   bridgeProfileService,
   type BridgeProfileService,
 } from '../services/bridgeProfileService'
+import { isBridgeProfileVerified } from '../services/bridgeProfileVerification'
 import { getBridgeErrorMessage } from '../services/bridgeErrorMessages'
 import {
   BridgeRelinkCompletionError,
@@ -112,8 +113,12 @@ export function BridgeProfilesSection({
 
     try {
       if (editingId) {
-        await profileService.actualizar(editingId, form)
-        setMessage('Perfil actualizado. Verifica la conexión nuevamente.')
+        const updated = await profileService.actualizar(editingId, form)
+        setMessage(
+          isBridgeProfileVerified(updated)
+            ? 'Perfil actualizado.'
+            : 'Perfil actualizado. Verifica la conexión nuevamente.',
+        )
       } else {
         await profileService.crear(form)
         setMessage('Perfil guardado. Ahora verifica su identidad.')

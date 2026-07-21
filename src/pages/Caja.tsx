@@ -11,6 +11,7 @@ import {
   bridgeProfileService,
   type BridgeProfileService,
 } from '../services/bridgeProfileService'
+import { isBridgeProfileVerified } from '../services/bridgeProfileVerification'
 import {
   getBridgeErrorCode,
   getBridgeErrorMessage,
@@ -37,6 +38,18 @@ type CajaProfileSelectorProps = {
   onSelect: (profileId: string) => void
 }
 
+type CajaProfileStatusProps = {
+  profile: BridgeProfile
+  state: CajaSyncState
+}
+
+type CajaSyncButtonProps = {
+  profile: BridgeProfile
+  synchronizing: boolean
+  selectingProfile: boolean
+  onSynchronize: () => void
+}
+
 export function CajaProfileSelector({
   profiles,
   activeProfileId,
@@ -60,6 +73,55 @@ export function CajaProfileSelector({
         ))}
       </select>
     </label>
+  )
+}
+
+export function CajaProfileStatus({
+  profile,
+  state,
+}: CajaProfileStatusProps) {
+  if (!isBridgeProfileVerified(profile)) {
+    return (
+      <div
+        aria-live="polite"
+        className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+        role="status"
+      >
+        <p className="font-semibold">Perfil pendiente de verificación</p>
+        <p className="mt-1">
+          Verifica la conexión en Ajustes antes de sincronizar.
+        </p>
+      </div>
+    )
+  }
+
+  return <CajaSyncStatus state={state} />
+}
+
+export function CajaSyncButton({
+  profile,
+  synchronizing,
+  selectingProfile,
+  onSynchronize,
+}: CajaSyncButtonProps) {
+  const disabled =
+    !isBridgeProfileVerified(profile) ||
+    synchronizing ||
+    selectingProfile
+
+  return (
+    <button
+      className="button-primary mt-5"
+      disabled={disabled}
+      type="button"
+      onClick={() => {
+        if (!disabled) {
+          onSynchronize()
+        }
+      }}
+    >
+      {synchronizing ? 'Sincronizando…' : 'Sincronizar'}
+    </button>
   )
 }
 
@@ -154,7 +216,7 @@ export function Caja({
   }
 
   async function synchronize() {
-    if (!activeProfile || !activeProfile.sourceId) {
+    if (!activeProfile || !isBridgeProfileVerified(activeProfile)) {
       return
     }
 
@@ -283,12 +345,6 @@ export function Caja({
           </p>
         )}
 
-        {activeProfile && !activeProfile.sourceId && (
-          <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
-            Verifica la conexión antes de sincronizar.
-          </p>
-        )}
-
         {activeProfile?.sourceId && !snapshot && syncState.status === 'idle' && (
           <p className="mt-4 text-sm text-slate-600">
             Este dispositivo todavía no tiene un snapshot guardado para el
@@ -297,22 +353,18 @@ export function Caja({
         )}
 
         {activeProfile && (
-          <button
-            className="button-primary mt-5"
-            disabled={
-              !activeProfile.sourceId || synchronizing || selectingProfile
-            }
-            type="button"
-            onClick={() => void synchronize()}
-          >
-            {synchronizing ? 'Sincronizando…' : 'Sincronizar'}
-          </button>
+          <CajaSyncButton
+            profile={activeProfile}
+            selectingProfile={selectingProfile}
+            synchronizing={synchronizing}
+            onSynchronize={() => void synchronize()}
+          />
         )}
       </div>
 
       {activeProfile && (
         <div className="mt-5">
-          <CajaSyncStatus state={syncState} />
+          <CajaProfileStatus profile={activeProfile} state={syncState} />
         </div>
       )}
 

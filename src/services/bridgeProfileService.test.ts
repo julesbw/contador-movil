@@ -13,6 +13,7 @@ import {
   BridgeProfileService,
   BridgeProfileValidationError,
 } from './bridgeProfileService'
+import { isBridgeProfileVerified } from './bridgeProfileVerification'
 
 const source: BridgeSourceResponse = {
   schema_version: '1.0',
@@ -165,6 +166,90 @@ describe('BridgeProfileService', () => {
 
     await service.seleccionarActivo(undefined)
     expect(configValues.has('active_bridge_profile_id')).toBe(false)
+  })
+
+  it('conserva la verificación al editar únicamente el alias', async () => {
+    const profile = createProfile({
+      sourceId: source.source_id,
+      sourceName: source.source_name,
+      lastVerifiedAt: '2026-07-15T10:00:00.000Z',
+    })
+    const { service } = createService([profile])
+
+    const updated = await service.actualizar(profile.id, {
+      name: 'Alias actualizado',
+      baseUrl: profile.baseUrl,
+      token: profile.token,
+    })
+
+    expect(updated).toMatchObject({
+      name: 'Alias actualizado',
+      sourceId: profile.sourceId,
+      updatedAt: '2026-07-15T10:05:00.000Z',
+      lastVerifiedAt: '2026-07-15T10:05:00.000Z',
+    })
+    expect(isBridgeProfileVerified(updated)).toBe(true)
+  })
+
+  it('invalida la verificación al cambiar la URL', async () => {
+    const profile = createProfile({
+      sourceId: source.source_id,
+      sourceName: source.source_name,
+      lastVerifiedAt: '2026-07-15T10:00:00.000Z',
+    })
+    const { service } = createService([profile])
+
+    const updated = await service.actualizar(profile.id, {
+      name: profile.name,
+      baseUrl: 'https://otro-equipo.example',
+      token: profile.token,
+    })
+
+    expect(updated.sourceId).toBe(profile.sourceId)
+    expect(updated.lastVerifiedAt).toBe(profile.lastVerifiedAt)
+    expect(updated.updatedAt).toBe('2026-07-15T10:05:00.000Z')
+    expect(isBridgeProfileVerified(updated)).toBe(false)
+  })
+
+  it('invalida la verificación al cambiar el token', async () => {
+    const profile = createProfile({
+      sourceId: source.source_id,
+      sourceName: source.source_name,
+      lastVerifiedAt: '2026-07-15T10:00:00.000Z',
+    })
+    const { service } = createService([profile])
+
+    const updated = await service.actualizar(profile.id, {
+      name: profile.name,
+      baseUrl: profile.baseUrl,
+      token: 'token-nuevo',
+    })
+
+    expect(updated.sourceId).toBe(profile.sourceId)
+    expect(updated.lastVerifiedAt).toBe(profile.lastVerifiedAt)
+    expect(updated.updatedAt).toBe('2026-07-15T10:05:00.000Z')
+    expect(isBridgeProfileVerified(updated)).toBe(false)
+  })
+
+  it('prioriza la invalidación al cambiar alias y conexión juntos', async () => {
+    const profile = createProfile({
+      sourceId: source.source_id,
+      sourceName: source.source_name,
+      lastVerifiedAt: '2026-07-15T10:00:00.000Z',
+    })
+    const { service } = createService([profile])
+
+    const updated = await service.actualizar(profile.id, {
+      name: 'Alias y conexión nuevos',
+      baseUrl: 'https://otro-equipo.example',
+      token: 'token-nuevo',
+    })
+
+    expect(updated.name).toBe('Alias y conexión nuevos')
+    expect(updated.sourceId).toBe(profile.sourceId)
+    expect(updated.lastVerifiedAt).toBe(profile.lastVerifiedAt)
+    expect(updated.updatedAt).toBe('2026-07-15T10:05:00.000Z')
+    expect(isBridgeProfileVerified(updated)).toBe(false)
   })
 
   it('no vincula la primera identidad antes de confirmarla', async () => {

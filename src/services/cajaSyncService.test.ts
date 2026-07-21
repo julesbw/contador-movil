@@ -135,8 +135,22 @@ describe('CajaSyncService', () => {
   })
 
   it('no consulta ni guarda un perfil sin verificar', async () => {
+    const previous: StoredCajaSnapshot = {
+      profileId: profile.id,
+      schemaVersion: '1.0',
+      snapshotId: '00000000-0000-4000-8000-000000000010',
+      sourceId,
+      sourceName: 'Equipo',
+      scope: 'caja',
+      generatedAt: '2026-07-14T10:00:00.000Z',
+      receivedAt: '2026-07-14T10:00:01.000Z',
+      syncedAt: '2026-07-14T10:00:02.000Z',
+      billetes: latest.billetes,
+      total: latest.total,
+    }
     const dependencies = createDependencies({
       profile: { ...profile, sourceId: undefined },
+      previous,
     })
 
     await expect(
@@ -144,6 +158,7 @@ describe('CajaSyncService', () => {
     ).rejects.toMatchObject({ code: 'PROFILE_NOT_VERIFIED' })
     expect(dependencies.client.obtenerSource).not.toHaveBeenCalled()
     expect(dependencies.saves).toEqual([])
+    expect(dependencies.getStored()).toBe(previous)
   })
 
   it('bloquea source mismatch antes de solicitar latest', async () => {

@@ -13,6 +13,7 @@ import {
 } from '../db/bridgeProfilesRepo'
 import { configRepo, type ConfigRepository } from '../db/configRepo'
 import type { BridgeProfile } from '../models/BridgeProfile'
+import { isBridgeProfileVerified } from './bridgeProfileVerification'
 
 const MAX_PROFILE_NAME_LENGTH = 80
 
@@ -114,13 +115,23 @@ export class BridgeProfileService {
     input: BridgeProfileInput,
   ): Promise<BridgeProfile> {
     const current = await this.requireProfile(id)
+    const name = validateProfileName(input.name)
+    const baseUrl = normalizeBridgeBaseUrl(input.baseUrl)
+    const token = validateToken(input.token)
     const updatedAt = nextTimestamp(current.updatedAt, this.now())
+    const connectionChanged =
+      baseUrl !== current.baseUrl || token !== current.token
+    const lastVerifiedAt =
+      !connectionChanged && isBridgeProfileVerified(current)
+        ? updatedAt
+        : current.lastVerifiedAt
     const updated: BridgeProfile = {
       ...current,
-      name: validateProfileName(input.name),
-      baseUrl: normalizeBridgeBaseUrl(input.baseUrl),
-      token: validateToken(input.token),
+      name,
+      baseUrl,
+      token,
       updatedAt,
+      lastVerifiedAt,
     }
 
     await this.profiles.actualizar(id, {
@@ -128,6 +139,7 @@ export class BridgeProfileService {
       baseUrl: updated.baseUrl,
       token: updated.token,
       updatedAt,
+      lastVerifiedAt,
     })
 
     return updated
