@@ -7,8 +7,11 @@ import type {
 import type { Movimiento } from '../models/Movimiento'
 import type { DatosMovimiento } from './movimientoValidation'
 import {
+  MovimientoCashCutsNoEditableError,
+  MovimientoDesactualizadoError,
   MovimientoNoEditableError,
   MovimientoService,
+  MovimientoValidationError,
 } from './movimientoService'
 
 function crearDatos(): DatosMovimiento {
@@ -132,6 +135,35 @@ describe('MovimientoService', () => {
     })
   })
 
+  it('convierte un desglose inválido en un error de validación controlado', async () => {
+    const service = new MovimientoService(crearRepository())
+    const datos = {
+      ...crearDatos(),
+      billetes: {
+        ...crearDatos().billetes,
+        monedas: 0.001,
+      },
+    }
+
+    expect(service.validar(datos).errores).toContain(
+      'El desglose de efectivo contiene valores inválidos',
+    )
+    await expect(service.crear(datos)).rejects.toBeInstanceOf(
+      MovimientoValidationError,
+    )
+  })
+
+  it('rechaza fechas calendario inexistentes', async () => {
+    const service = new MovimientoService(crearRepository())
+
+    await expect(
+      service.crear({
+        ...crearDatos(),
+        fechaMovimiento: '2026-02-30',
+      }),
+    ).rejects.toBeInstanceOf(MovimientoValidationError)
+  })
+
   it('impide editar o eliminar movimientos exportados', async () => {
     const exportado: Movimiento = {
       ...crearDatos(),
@@ -143,11 +175,127 @@ describe('MovimientoService', () => {
     }
     const service = new MovimientoService(crearRepository([exportado]))
 
-    await expect(service.actualizar(exportado.id, crearDatos())).rejects.toBeInstanceOf(
-      MovimientoNoEditableError,
+    await expect(
+      service.actualizar(
+        exportado.id,
+        crearDatos(),
+        exportado.actualizadoEn,
+      ),
+    ).rejects.toBeInstanceOf(MovimientoNoEditableError)
+    await expect(
+      service.eliminar(exportado.id, exportado.actualizadoEn),
+    ).rejects.toBeInstanceOf(MovimientoNoEditableError)
+  })
+
+  it('restringe la edición financiera de movimientos generados desde cortes', async () => {
+    const movimiento: Movimiento = {
+      ...crearDatos(),
+      id: 'movement-from-cuts',
+      tipo: 'entrada',
+      concepto: 'Corte original',
+      categoria: 'Corte de caja',
+      source: {
+        type: 'cash-cuts',
+        cashCutIds: ['cut-1', 'cut-2'],
+      },
+      estadoExportacion: 'pendiente',
+      creadoEn: '2026-07-26T12:00:00.000Z',
+      actualizadoEn: '2026-07-26T12:00:00.000Z',
+    }
+    const repository = crearRepository([movimiento])
+    const service = new MovimientoService(repository)
+    const datosEditados: DatosMovimiento = {
+      tipo: movimiento.tipo,
+      fechaMovimiento: '2026-07-27',
+      monto: movimiento.monto,
+      concepto: 'Corte actualizado',
+      categoria: movimiento.categoria,
+      formaPago: movimiento.formaPago,
+      billetes: { ...movimiento.billetes },
+      notas: 'Solo metadatos',
+    }
+
+    const updated = await service.actualizar(
+      movimiento.id,
+      datosEditados,
+      movimiento.actualizadoEn,
     )
-    await expect(service.eliminar(exportado.id)).rejects.toBeInstanceOf(
-      MovimientoNoEditableError,
+
+    expect(updated).toMatchObject({
+      fechaMovimiento: '2026-07-27',
+      concepto: 'Corte actualizado',
+      notas: 'Solo metadatos',
+      monto: movimiento.monto,
+      billetes: movimiento.billetes,
+      source: movimiento.source,
+    })
+
+    await expect(
+      service.actualizar(
+        movimiento.id,
+        {
+          ...datosEditados,
+          monto: 200,
+          billetes: {
+            ...datosEditados.billetes,
+            b100: 2,
+          },
+        },
+        updated.actualizadoEn,
+      ),
+    ).rejects.toBeInstanceOf(MovimientoCashCutsNoEditableError)
+  })
+
+  it('rechaza editar desde una vista anterior a otro cambio', async () => {
+    const movimiento: Movimiento = {
+      ...crearDatos(),
+      concepto: 'Versión original',
+      id: 'stale-edit',
+      estadoExportacion: 'pendiente',
+      creadoEn: '2026-07-26T12:00:00.000Z',
+      actualizadoEn: '2026-07-26T12:00:00.000Z',
+    }
+    const repository = crearRepository([movimiento])
+    const service = new MovimientoService(repository)
+
+    repository.registros[0] = {
+      ...repository.registros[0]!,
+      concepto: 'Cambio de otra pestaña',
+      actualizadoEn: '2026-07-26T12:01:00.000Z',
+    }
+
+    await expect(
+      service.actualizar(
+        movimiento.id,
+        crearDatos(),
+        movimiento.actualizadoEn,
+      ),
+    ).rejects.toBeInstanceOf(MovimientoDesactualizadoError)
+    expect(repository.registros[0]?.concepto).toBe(
+      'Cambio de otra pestaña',
     )
+  })
+
+  it('rechaza borrar una versión más reciente desde una vista obsoleta', async () => {
+    const movimiento: Movimiento = {
+      ...crearDatos(),
+      concepto: 'Movimiento vigente',
+      id: 'stale-delete',
+      estadoExportacion: 'pendiente',
+      creadoEn: '2026-07-26T12:00:00.000Z',
+      actualizadoEn: '2026-07-26T12:00:00.000Z',
+    }
+    const repository = crearRepository([movimiento])
+    const service = new MovimientoService(repository)
+
+    repository.registros[0] = {
+      ...repository.registros[0]!,
+      actualizadoEn: '2026-07-26T12:01:00.000Z',
+    }
+
+    await expect(
+      service.eliminar(movimiento.id, movimiento.actualizadoEn),
+    ).rejects.toBeInstanceOf(MovimientoDesactualizadoError)
+    expect(repository.registros).toHaveLength(1)
   })
 })

@@ -1,4 +1,5 @@
 import type { Categoria } from './Categoria'
+import type { DesgloseEfectivo } from './Efectivo'
 
 export const TIPOS_MOVIMIENTO = ['entrada', 'salida'] as const
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number]
@@ -14,14 +15,11 @@ export type FormaPago = (typeof FORMAS_PAGO)[number]
 export const ESTADOS_EXPORTACION = ['pendiente', 'exportado'] as const
 export type EstadoExportacion = (typeof ESTADOS_EXPORTACION)[number]
 
-export type Billetes = {
-  b1000: number
-  b500: number
-  b200: number
-  b100: number
-  b50: number
-  b20: number
-  monedas: number
+export type Billetes = DesgloseEfectivo
+
+export type CashCutMovementSource = {
+  type: 'cash-cuts'
+  cashCutIds: string[]
 }
 
 export type Movimiento = {
@@ -34,6 +32,7 @@ export type Movimiento = {
   formaPago: FormaPago
   billetes: Billetes
   notas?: string
+  source?: CashCutMovementSource
   estadoExportacion: EstadoExportacion
   exportadoEn?: string
   loteExportacionId?: string

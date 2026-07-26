@@ -18,6 +18,16 @@ body {
   min-height: 100vh;
 }
 
+#root {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+}
+
 button,
 input,
 select,

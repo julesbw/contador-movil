@@ -1,4 +1,5 @@
 import { db } from './db'
+import { siguienteTimestamp } from '../domain/timestamp'
 import type { Movimiento } from '../models/Movimiento'
 
 export type PaginaMovimientos = {
@@ -7,13 +8,55 @@ export type PaginaMovimientos = {
 }
 
 export type CambiosMovimiento = Partial<
-  Omit<Movimiento, 'id' | 'creadoEn'>
+  Omit<
+    Movimiento,
+    | 'id'
+    | 'creadoEn'
+    | 'actualizadoEn'
+    | 'estadoExportacion'
+    | 'exportadoEn'
+    | 'loteExportacionId'
+    | 'source'
+  >
+> &
+  Pick<Movimiento, 'actualizadoEn'>
+
+export type MovimientoSnapshot = Pick<
+  Movimiento,
+  'id' | 'actualizadoEn'
 >
 
 export class MovimientosLoteDesactualizadoError extends Error {
   constructor() {
     super('Uno o más movimientos del lote ya no están pendientes')
     this.name = 'MovimientosLoteDesactualizadoError'
+  }
+}
+
+export class MovimientoEliminacionDesactualizadaError extends Error {
+  constructor(id: string) {
+    super(
+      `El movimiento con id "${id}" ya no existe o dejó de estar pendiente`,
+    )
+    this.name = 'MovimientoEliminacionDesactualizadaError'
+  }
+}
+
+export class MovimientoActualizacionDesactualizadaError extends Error {
+  constructor(id: string) {
+    super(
+      `El movimiento con id "${id}" ya no existe, cambió o dejó de estar pendiente`,
+    )
+    this.name = 'MovimientoActualizacionDesactualizadaError'
+  }
+}
+
+export class MovimientoCashCutsInconsistenteError extends Error {
+  constructor(id: string) {
+    super(
+      `La relación entre el movimiento con id "${id}" y sus cortes es inconsistente`,
+    )
+    this.name = 'MovimientoCashCutsInconsistenteError'
   }
 }
 
@@ -24,12 +67,16 @@ export interface MovimientosRepository {
   obtenerPendientes(): Promise<Movimiento[]>
   obtenerTodos(): Promise<Movimiento[]>
   marcarExportados(
-    ids: string[],
+    snapshots: readonly MovimientoSnapshot[],
     loteExportacionId: string,
     exportadoEn: string,
   ): Promise<void>
-  actualizar(id: string, cambios: CambiosMovimiento): Promise<void>
-  eliminar(id: string): Promise<void>
+  actualizar(
+    id: string,
+    cambios: CambiosMovimiento,
+    expectedActualizadoEn: string,
+  ): Promise<void>
+  eliminar(id: string, expectedActualizadoEn: string): Promise<void>
 }
 
 function validarPaginacion({ pagina, tamanoPagina }: PaginaMovimientos) {
@@ -73,8 +120,17 @@ export const movimientosRepo: MovimientosRepository = {
     return db.movimientos.orderBy('fechaMovimiento').reverse().toArray()
   },
 
-  async marcarExportados(ids, loteExportacionId, exportadoEn) {
+  async marcarExportados(snapshots, loteExportacionId, exportadoEn) {
     await db.transaction('rw', db.movimientos, async () => {
+      const ids = snapshots.map(({ id }) => id)
+
+      if (
+        ids.length === 0 ||
+        new Set(ids).size !== ids.length
+      ) {
+        throw new MovimientosLoteDesactualizadoError()
+      }
+
       const movimientos = await db.movimientos.bulkGet(ids)
 
       if (movimientos.some((movimiento) => !movimiento)) {
@@ -83,35 +139,132 @@ export const movimientosRepo: MovimientosRepository = {
 
       if (
         movimientos.some(
-          (movimiento) => movimiento?.estadoExportacion !== 'pendiente',
+          (movimiento, index) =>
+            movimiento?.estadoExportacion !== 'pendiente' ||
+            movimiento.actualizadoEn !==
+              snapshots[index]?.actualizadoEn,
         )
       ) {
         throw new MovimientosLoteDesactualizadoError()
       }
 
       await db.movimientos.bulkUpdate(
-        ids.map((key) => ({
-          key,
+        movimientos.map((movimiento, index) => ({
+          key: ids[index]!,
           changes: {
             estadoExportacion: 'exportado',
             exportadoEn,
             loteExportacionId,
-            actualizadoEn: exportadoEn,
+            actualizadoEn: siguienteTimestamp(
+              movimiento!.actualizadoEn,
+              Date.parse(exportadoEn),
+            ),
           },
         })),
       )
     })
   },
 
-  async actualizar(id, cambios) {
-    const registrosActualizados = await db.movimientos.update(id, cambios)
+  async actualizar(id, cambios, expectedActualizadoEn) {
+    await db.transaction('rw', db.movimientos, async () => {
+      const movimiento = await db.movimientos.get(id)
+      const currentMilliseconds = movimiento
+        ? Date.parse(movimiento.actualizadoEn)
+        : Number.NaN
+      const nextMilliseconds = Date.parse(cambios.actualizadoEn)
 
-    if (registrosActualizados === 0) {
-      throw new Error(`No existe el movimiento con id "${id}"`)
-    }
+      if (
+        !movimiento ||
+        movimiento.estadoExportacion !== 'pendiente' ||
+        movimiento.actualizadoEn !== expectedActualizadoEn ||
+        !Number.isFinite(currentMilliseconds) ||
+        !Number.isFinite(nextMilliseconds) ||
+        nextMilliseconds <= currentMilliseconds
+      ) {
+        throw new MovimientoActualizacionDesactualizadaError(id)
+      }
+
+      await db.movimientos.update(id, cambios)
+    })
   },
 
-  async eliminar(id) {
-    await db.movimientos.delete(id)
+  async eliminar(id, expectedActualizadoEn) {
+    await db.transaction(
+      'rw',
+      db.movimientos,
+      db.cashCuts,
+      async () => {
+        const movimiento = await db.movimientos.get(id)
+
+        if (
+          !movimiento ||
+          movimiento.estadoExportacion !== 'pendiente' ||
+          movimiento.actualizadoEn !== expectedActualizadoEn
+        ) {
+          throw new MovimientoEliminacionDesactualizadaError(id)
+        }
+
+        const cortesRelacionados = await db.cashCuts
+          .where('movementId')
+          .equals(id)
+          .toArray()
+        const source = movimiento.source
+
+        if (source?.type !== 'cash-cuts') {
+          if (cortesRelacionados.length > 0) {
+            throw new MovimientoCashCutsInconsistenteError(id)
+          }
+
+          await db.movimientos.delete(id)
+          return
+        }
+
+        const sourceIds = source.cashCutIds
+        const sourceIdSet = new Set(sourceIds)
+
+        if (
+          sourceIds.length === 0 ||
+          sourceIdSet.size !== sourceIds.length
+        ) {
+          throw new MovimientoCashCutsInconsistenteError(id)
+        }
+
+        const cortesSource = await db.cashCuts.bulkGet(sourceIds)
+
+        if (
+          cortesSource.some((cashCut) => !cashCut) ||
+          cortesRelacionados.length !== sourceIds.length ||
+          cortesRelacionados.some(
+            (cashCut) =>
+              !sourceIdSet.has(cashCut.id) ||
+              cashCut.status !== 'included' ||
+              cashCut.movementId !== id,
+          ) ||
+          cortesSource.some(
+            (cashCut) =>
+              !cashCut ||
+              cashCut.status !== 'included' ||
+              cashCut.movementId !== id,
+          )
+        ) {
+          throw new MovimientoCashCutsInconsistenteError(id)
+        }
+
+        const cortesPendientes = cortesRelacionados.map((cashCut) => {
+          const cashCutPendiente = {
+            ...cashCut,
+            status: 'pending' as const,
+            updatedAt: siguienteTimestamp(cashCut.updatedAt),
+          }
+
+          delete cashCutPendiente.movementId
+
+          return cashCutPendiente
+        })
+
+        await db.cashCuts.bulkPut(cortesPendientes)
+        await db.movimientos.delete(id)
+      },
+    )
   },
 }

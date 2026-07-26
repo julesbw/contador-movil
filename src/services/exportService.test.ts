@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ConfigRepository } from '../db/configRepo'
-import type { MovimientosRepository } from '../db/movimientosRepo'
+import type {
+  MovimientoSnapshot,
+  MovimientosRepository,
+} from '../db/movimientosRepo'
 import type { ConfigKey } from '../models/ConfigItem'
 import type { Movimiento } from '../models/Movimiento'
 import { ConfigService } from './configService'
@@ -90,9 +93,9 @@ function crearRepository(
 
 function crearRepositoryConRegistros(registros: Movimiento[]): {
   repository: MovimientosRepository
-  idsMarcados: string[][]
+  snapshotsMarcados: MovimientoSnapshot[][]
 } {
-  const idsMarcados: string[][] = []
+  const snapshotsMarcados: MovimientoSnapshot[][] = []
   const repository: MovimientosRepository = {
     guardar(movimiento) {
       registros.push(movimiento)
@@ -114,8 +117,10 @@ function crearRepositoryConRegistros(registros: Movimiento[]): {
     obtenerTodos() {
       return Promise.resolve(registros)
     },
-    marcarExportados(ids) {
-      idsMarcados.push([...ids])
+    marcarExportados(snapshots) {
+      snapshotsMarcados.push(
+        snapshots.map((snapshot) => ({ ...snapshot })),
+      )
       return Promise.resolve()
     },
     actualizar() {
@@ -126,7 +131,7 @@ function crearRepositoryConRegistros(registros: Movimiento[]): {
     },
   }
 
-  return { repository, idsMarcados }
+  return { repository, snapshotsMarcados }
 }
 
 describe('ExportService', () => {
@@ -152,6 +157,44 @@ describe('ExportService', () => {
       fecha_movimiento: '2026-07-08',
       forma_pago: 'tarjeta',
       creado_en: movimiento.creadoEn,
+    })
+  })
+
+  it('mantiene source local fuera del contrato JSON 1.0', async () => {
+    const movimiento: Movimiento = {
+      ...crearMovimiento(),
+      tipo: 'entrada',
+      categoria: 'Corte de caja',
+      formaPago: 'efectivo',
+      billetes: {
+        b1000: 1,
+        b500: 0,
+        b200: 0,
+        b100: 0,
+        b50: 0,
+        b20: 0,
+        monedas: 0,
+      },
+      monto: 1000,
+      source: {
+        type: 'cash-cuts',
+        cashCutIds: ['cut-1'],
+      },
+    }
+    const service = new ExportService(
+      crearRepository(movimiento),
+      crearConfigService(),
+    )
+
+    const lote = await service.prepararPendientes()
+    const exportedMovement = lote.archivo.movimientos[0]
+
+    expect(lote.archivo.version).toBe('1.0')
+    expect(exportedMovement).not.toHaveProperty('source')
+    expect(exportedMovement).toMatchObject({
+      tipo: 'entrada',
+      categoria: 'Corte de caja',
+      monto: 1000,
     })
   })
 
@@ -183,7 +226,9 @@ describe('ExportService', () => {
       reciente.id,
     ])
 
-    expect(lote.movimientoIds).toEqual([reciente.id, antiguo.id])
+    expect(
+      lote.movimientoSnapshots.map(({ id }) => id),
+    ).toEqual([reciente.id, antiguo.id])
     expect(lote.archivo.total_movimientos).toBe(2)
     expect(lote.archivo.movimientos.map(({ id }) => id)).toEqual([
       reciente.id,
@@ -207,16 +252,24 @@ describe('ExportService', () => {
   it('confirma únicamente los IDs contenidos en el lote', async () => {
     const primero = { ...crearMovimiento(), id: 'primero' }
     const segundo = { ...crearMovimiento(), id: 'segundo' }
-    const { repository, idsMarcados } = crearRepositoryConRegistros([
+    const { repository, snapshotsMarcados } =
+      crearRepositoryConRegistros([
       primero,
       segundo,
-    ])
+      ])
     const service = new ExportService(repository, crearConfigService())
     const lote = await service.prepararPendientesSeleccionados([primero.id])
 
     await service.confirmarPendientes(lote)
 
-    expect(idsMarcados).toEqual([[primero.id]])
+    expect(snapshotsMarcados).toEqual([
+      [
+        {
+          id: primero.id,
+          actualizadoEn: primero.actualizadoEn,
+        },
+      ],
+    ])
   })
 
   it('el respaldo incluye pendientes y exportados sin marcar estados', async () => {
@@ -226,16 +279,17 @@ describe('ExportService', () => {
       id: crypto.randomUUID(),
       estadoExportacion: 'exportado' as const,
     }
-    const { repository, idsMarcados } = crearRepositoryConRegistros([
+    const { repository, snapshotsMarcados } =
+      crearRepositoryConRegistros([
       pendiente,
       exportado,
-    ])
+      ])
     const service = new ExportService(repository, crearConfigService())
 
     const respaldo = await service.prepararRespaldo()
 
     expect(respaldo.archivo.total_movimientos).toBe(2)
-    expect(respaldo.movimientoIds).toEqual([])
-    expect(idsMarcados).toEqual([])
+    expect(respaldo.movimientoSnapshots).toEqual([])
+    expect(snapshotsMarcados).toEqual([])
   })
 })

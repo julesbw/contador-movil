@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { CATEGORIAS } from '../models/Categoria'
+import { CATEGORIAS_MANUALES } from '../models/Categoria'
+import { crearDesgloseEfectivoVacio } from '../models/Efectivo'
 import {
   FORMAS_PAGO,
   type Billetes,
@@ -7,42 +8,15 @@ import {
 } from '../models/Movimiento'
 import {
   movimientoService,
+  MovimientoDesactualizadoError,
+  MovimientoNoEditableError,
   MovimientoValidationError,
 } from '../services/movimientoService'
 import {
   calcularTotalBilletes,
   type DatosMovimiento,
 } from '../services/movimientoValidation'
-
-const DENOMINACIONES: Array<{
-  key: keyof Billetes
-  label: string
-  valor: number
-}> = [
-  { key: 'b1000', label: '$1,000', valor: 1000 },
-  { key: 'b500', label: '$500', valor: 500 },
-  { key: 'b200', label: '$200', valor: 200 },
-  { key: 'b100', label: '$100', valor: 100 },
-  { key: 'b50', label: '$50', valor: 50 },
-  { key: 'b20', label: '$20', valor: 20 },
-  { key: 'monedas', label: 'Monedas', valor: 1 },
-]
-
-const BILLETES_EN_CERO: Billetes = {
-  b1000: 0,
-  b500: 0,
-  b200: 0,
-  b100: 0,
-  b50: 0,
-  b20: 0,
-  monedas: 0,
-}
-
-const formatoMoneda = new Intl.NumberFormat('es-MX', {
-  currency: 'MXN',
-  maximumFractionDigits: 2,
-  style: 'currency',
-})
+import { CashCounter } from './CashCounter'
 
 type ValoresFormulario = {
   fechaMovimiento: string
@@ -50,7 +24,7 @@ type ValoresFormulario = {
   concepto: string
   categoria: Movimiento['categoria']
   formaPago: Movimiento['formaPago']
-  billetes: Record<keyof Billetes, string>
+  billetes: Billetes
   notas: string
 }
 
@@ -72,17 +46,11 @@ function crearValoresIniciales(movimiento?: Movimiento): ValoresFormulario {
     fechaMovimiento: movimiento?.fechaMovimiento ?? fechaLocalActual(),
     monto: movimiento ? String(movimiento.monto) : '',
     concepto: movimiento?.concepto ?? '',
-    categoria: movimiento?.categoria ?? CATEGORIAS[0],
+    categoria: movimiento?.categoria ?? CATEGORIAS_MANUALES[0],
     formaPago: movimiento?.formaPago ?? 'efectivo',
-    billetes: {
-      b1000: movimiento ? String(movimiento.billetes.b1000) : '',
-      b500: movimiento ? String(movimiento.billetes.b500) : '',
-      b200: movimiento ? String(movimiento.billetes.b200) : '',
-      b100: movimiento ? String(movimiento.billetes.b100) : '',
-      b50: movimiento ? String(movimiento.billetes.b50) : '',
-      b20: movimiento ? String(movimiento.billetes.b20) : '',
-      monedas: movimiento ? String(movimiento.billetes.monedas) : '',
-    },
+    billetes: movimiento
+      ? { ...movimiento.billetes }
+      : crearDesgloseEfectivoVacio(),
     notas: movimiento?.notas ?? '',
   }
 }
@@ -100,16 +68,15 @@ export function MovimientoForm({
   const [guardando, setGuardando] = useState(false)
 
   const esEfectivo = valores.formaPago === 'efectivo'
-  const billetesNumericos: Billetes = {
-    b1000: Number(valores.billetes.b1000),
-    b500: Number(valores.billetes.b500),
-    b200: Number(valores.billetes.b200),
-    b100: Number(valores.billetes.b100),
-    b50: Number(valores.billetes.b50),
-    b20: Number(valores.billetes.b20),
-    monedas: Number(valores.billetes.monedas),
+  const generadoDesdeCortes =
+    movimiento?.source?.type === 'cash-cuts'
+  let totalContado = Number.NaN
+
+  try {
+    totalContado = calcularTotalBilletes(valores.billetes)
+  } catch {
+    // El servicio mostrará el error de validación sin perder el formulario.
   }
-  const totalContado = calcularTotalBilletes(billetesNumericos)
 
   function crearDatos(): DatosMovimiento {
     return {
@@ -119,12 +86,18 @@ export function MovimientoForm({
       concepto: valores.concepto,
       categoria: valores.categoria,
       formaPago: valores.formaPago,
-      billetes: esEfectivo ? billetesNumericos : BILLETES_EN_CERO,
+      billetes: esEfectivo
+        ? valores.billetes
+        : crearDesgloseEfectivoVacio(),
       notas: valores.notas,
     }
   }
 
   async function guardar(ignorarAdvertencia = false) {
+    if (guardando) {
+      return
+    }
+
     const datos = crearDatos()
     const resultado = movimientoService.validar(datos)
 
@@ -145,13 +118,25 @@ export function MovimientoForm({
 
     try {
       const guardado = movimiento
-        ? await movimientoService.actualizar(movimiento.id, datos)
+        ? await movimientoService.actualizar(
+            movimiento.id,
+            datos,
+            movimiento.actualizadoEn,
+          )
         : await movimientoService.crear(datos)
 
       onGuardado(guardado)
     } catch (error: unknown) {
       if (error instanceof MovimientoValidationError) {
         setErrores(error.errores)
+      } else if (error instanceof MovimientoNoEditableError) {
+        setErrores([
+          'El movimiento ya fue exportado y no puede modificarse.',
+        ])
+      } else if (error instanceof MovimientoDesactualizadoError) {
+        setErrores([
+          'El movimiento cambió desde que se abrió. Vuelve a cargarlo antes de editar.',
+        ])
       } else {
         console.error('No fue posible guardar el movimiento', error)
         setErrores(['No fue posible guardar el movimiento'])
@@ -181,12 +166,24 @@ export function MovimientoForm({
         </div>
       )}
 
+      {generadoDesdeCortes && movimiento?.source && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+          Este movimiento fue generado a partir de{' '}
+          {movimiento.source.cashCutIds.length}{' '}
+          {movimiento.source.cashCutIds.length === 1
+            ? 'corte de caja'
+            : 'cortes de caja'}
+          . Solo puedes modificar fecha, concepto y notas.
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="min-w-0 space-y-2 text-sm font-medium text-slate-700">
           Fecha
           <div className="mt-2 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2.5 transition focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-600/20">
             <input
               className="block w-full min-w-0 border-0 bg-transparent p-0 text-base text-slate-950 outline-none"
+              disabled={guardando}
               type="date"
               required
               value={valores.fechaMovimiento}
@@ -205,6 +202,7 @@ export function MovimientoForm({
             Monto
             <input
               className="field"
+              disabled={guardando}
               type="number"
               inputMode="decimal"
               min="0.01"
@@ -223,6 +221,7 @@ export function MovimientoForm({
         Concepto
         <input
           className="field"
+          disabled={guardando}
           required
           value={valores.concepto}
           onChange={(event) =>
@@ -231,125 +230,90 @@ export function MovimientoForm({
         />
       </label>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="space-y-2 text-sm font-medium text-slate-700">
-          Categoría
-          <select
-            className="field"
-            value={valores.categoria}
-            onChange={(event) =>
-              setValores({
-                ...valores,
-                categoria: event.target.value as Movimiento['categoria'],
-              })
-            }
-          >
-            {CATEGORIAS.map((categoria) => (
-              <option key={categoria}>{categoria}</option>
-            ))}
-          </select>
-        </label>
+      {generadoDesdeCortes ? (
+        <dl className="grid gap-4 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="font-medium text-slate-500">Tipo</dt>
+            <dd className="mt-1 capitalize text-slate-900">
+              {movimiento.tipo}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-slate-500">Categoría</dt>
+            <dd className="mt-1 text-slate-900">
+              {movimiento.categoria}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-slate-500">Forma de pago</dt>
+            <dd className="mt-1 capitalize text-slate-900">
+              {movimiento.formaPago}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-2 text-sm font-medium text-slate-700">
+            Categoría
+            <select
+              className="field"
+              disabled={guardando}
+              value={valores.categoria}
+              onChange={(event) =>
+                setValores({
+                  ...valores,
+                  categoria: event.target.value as Movimiento['categoria'],
+                })
+              }
+            >
+              {CATEGORIAS_MANUALES.map((categoria) => (
+                <option key={categoria}>{categoria}</option>
+              ))}
+            </select>
+          </label>
 
-        <label className="space-y-2 text-sm font-medium text-slate-700">
-          Forma de pago
-          <select
-            className="field"
-            value={valores.formaPago}
-            onChange={(event) =>
-              setValores({
-                ...valores,
-                formaPago: event.target.value as Movimiento['formaPago'],
-              })
-            }
-          >
-            {FORMAS_PAGO.map((formaPago) => (
-              <option key={formaPago} value={formaPago}>
-                {formaPago[0].toUpperCase() + formaPago.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+          <label className="space-y-2 text-sm font-medium text-slate-700">
+            Forma de pago
+            <select
+              className="field"
+              disabled={guardando}
+              value={valores.formaPago}
+              onChange={(event) =>
+                setValores({
+                  ...valores,
+                  formaPago: event.target.value as Movimiento['formaPago'],
+                })
+              }
+            >
+              {FORMAS_PAGO.map((formaPago) => (
+                <option key={formaPago} value={formaPago}>
+                  {formaPago[0].toUpperCase() + formaPago.slice(1)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {esEfectivo && (
-        <fieldset className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <legend className="sr-only">
-            Desglose de efectivo
-          </legend>
-          <div className="px-4 py-3 sm:px-5">
-            <p
-              aria-hidden="true"
-              className="text-sm font-semibold text-slate-900"
-            >
-              Desglose de efectivo
-            </p>
-          </div>
-          <div className="divide-y divide-slate-100 border-t border-slate-200 px-4 sm:px-5">
-            {DENOMINACIONES.map(({ key, label, valor }) => (
-              <label
-                className="grid min-h-14 grid-cols-[3.5rem_auto_4rem_auto_minmax(0,1fr)] items-center gap-1 text-sm sm:grid-cols-[6rem_auto_5rem_auto_minmax(0,1fr)] sm:gap-2"
-                key={key}
-              >
-                <span className="font-medium text-slate-700">{label}</span>
-                <span aria-hidden="true" className="text-slate-400">
-                  ×
-                </span>
-                <input
-                  className="h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-base text-slate-950 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20"
-                  type="number"
-                  inputMode={key === 'monedas' ? 'decimal' : 'numeric'}
-                  min="0"
-                  placeholder="0"
-                  step={key === 'monedas' ? '0.01' : '1'}
-                  aria-label={
-                    key === 'monedas'
-                      ? 'Monto total en monedas'
-                      : `Cantidad de billetes de ${valor} pesos`
-                  }
-                  value={valores.billetes[key]}
-                  onChange={(event) =>
-                    setValores({
-                      ...valores,
-                      billetes: {
-                        ...valores.billetes,
-                        [key]: event.target.value,
-                      },
-                    })
-                  }
-                />
-                <span aria-hidden="true" className="text-slate-400">
-                  =
-                </span>
-                <span className="min-w-0 text-right font-semibold tabular-nums text-slate-800">
-                  {key === 'monedas'
-                    ? formatoMoneda.format(billetesNumericos[key])
-                    : formatoMoneda.format(
-                        billetesNumericos[key] * valor,
-                      )}
-                </span>
-              </label>
-            ))}
-          </div>
-          <div className="flex items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
-            <div>
-              <p className="text-sm font-semibold text-slate-700">
-                Total contado
-              </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Monto del movimiento
-              </p>
-            </div>
-            <p className="text-xl font-bold tabular-nums text-slate-950 sm:text-2xl">
-              {formatoMoneda.format(totalContado)}
-            </p>
-          </div>
-        </fieldset>
+        <CashCounter
+          disabled={guardando}
+          readOnly={generadoDesdeCortes}
+          showTotal
+          legend="Desglose de efectivo"
+          totalLabel="Monto del movimiento"
+          value={valores.billetes}
+          onChange={(billetes) =>
+            setValores({ ...valores, billetes })
+          }
+        />
       )}
 
       <label className="space-y-2 text-sm font-medium text-slate-700">
         Notas (opcional)
         <textarea
           className="field min-h-24 resize-y"
+          disabled={guardando}
           value={valores.notas}
           onChange={(event) =>
             setValores({ ...valores, notas: event.target.value })
@@ -369,6 +333,7 @@ export function MovimientoForm({
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               className="button-secondary"
+              disabled={guardando}
               type="button"
               onClick={() => setAdvertencia(undefined)}
             >
@@ -376,6 +341,7 @@ export function MovimientoForm({
             </button>
             <button
               className="button-primary"
+              disabled={guardando}
               type="button"
               onClick={() => void guardar(true)}
             >

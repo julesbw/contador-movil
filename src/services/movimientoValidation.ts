@@ -1,10 +1,14 @@
 import { CATEGORIAS } from '../models/Categoria'
+import { esFechaCalendarioValida } from '../domain/fecha'
 import {
   FORMAS_PAGO,
   TIPOS_MOVIMIENTO,
-  type Billetes,
   type Movimiento,
 } from '../models/Movimiento'
+import {
+  calcularTotalEfectivo,
+  validarDesgloseEfectivo,
+} from './efectivo'
 
 export type DatosMovimiento = Pick<
   Movimiento,
@@ -23,17 +27,7 @@ export type ResultadoValidacion = {
   advertencias: string[]
 }
 
-export function calcularTotalBilletes(billetes: Billetes): number {
-  return (
-    billetes.b1000 * 1000 +
-    billetes.b500 * 500 +
-    billetes.b200 * 200 +
-    billetes.b100 * 100 +
-    billetes.b50 * 50 +
-    billetes.b20 * 20 +
-    billetes.monedas
-  )
-}
+export const calcularTotalBilletes = calcularTotalEfectivo
 
 export function validarMovimiento(
   movimiento: DatosMovimiento,
@@ -60,31 +54,30 @@ export function validarMovimiento(
     errores.push('La categoría no es válida')
   }
 
-  if (movimiento.fechaMovimiento.trim().length === 0) {
+  const fechaMovimiento = movimiento.fechaMovimiento.trim()
+
+  if (fechaMovimiento.length === 0) {
     errores.push('La fecha es obligatoria')
+  } else if (!esFechaCalendarioValida(fechaMovimiento)) {
+    errores.push('La fecha no es válida')
   }
 
   if (!FORMAS_PAGO.includes(movimiento.formaPago)) {
     errores.push('La forma de pago no es válida')
   }
 
-  const denominaciones = Object.entries(movimiento.billetes) as Array<
-    [keyof Billetes, number]
-  >
-
   if (movimiento.formaPago === 'efectivo') {
-    if (
-      denominaciones.some(
-        ([, cantidad]) => !Number.isFinite(cantidad) || cantidad < 0,
-      )
-    ) {
+    const validacionEfectivo = validarDesgloseEfectivo(
+      movimiento.billetes,
+    )
+
+    if (validacionEfectivo.errores.length > 0) {
       errores.push('El desglose de efectivo contiene valores inválidos')
     }
 
     if (
-      denominaciones.some(
-        ([denominacion, cantidad]) =>
-          denominacion !== 'monedas' && !Number.isInteger(cantidad),
+      validacionEfectivo.errores.some((error) =>
+        error.includes('cantidad entera'),
       )
     ) {
       errores.push('Las cantidades de billetes deben ser números enteros')

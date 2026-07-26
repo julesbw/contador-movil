@@ -1,9 +1,17 @@
 import {
+  MovimientoActualizacionDesactualizadaError,
+  MovimientoEliminacionDesactualizadaError,
   movimientosRepo,
   type MovimientosRepository,
   type PaginaMovimientos,
 } from '../db/movimientosRepo'
+import { siguienteTimestamp } from '../domain/timestamp'
+import { crearDesgloseEfectivoVacio } from '../models/Efectivo'
 import type { Movimiento } from '../models/Movimiento'
+import {
+  convertirPesosACentavos,
+  desglosesEfectivoIguales,
+} from './efectivo'
 import {
   calcularTotalBilletes,
   validarMovimiento,
@@ -11,27 +19,25 @@ import {
   type ResultadoValidacion,
 } from './movimientoValidation'
 
-const BILLETES_EN_CERO: Movimiento['billetes'] = {
-  b1000: 0,
-  b500: 0,
-  b200: 0,
-  b100: 0,
-  b50: 0,
-  b20: 0,
-  monedas: 0,
-}
-
 function normalizarDatos(datos: DatosMovimiento): DatosMovimiento {
   if (datos.formaPago === 'efectivo') {
+    let monto = Number.NaN
+
+    try {
+      monto = calcularTotalBilletes(datos.billetes)
+    } catch {
+      // La validación detallada del desglose se ejecuta después.
+    }
+
     return {
       ...datos,
-      monto: calcularTotalBilletes(datos.billetes),
+      monto,
     }
   }
 
   return {
     ...datos,
-    billetes: { ...BILLETES_EN_CERO },
+    billetes: crearDesgloseEfectivoVacio(),
   }
 }
 
@@ -56,6 +62,24 @@ export class MovimientoNoEncontradoError extends Error {
   constructor(id: string) {
     super(`No existe el movimiento con id "${id}"`)
     this.name = 'MovimientoNoEncontradoError'
+  }
+}
+
+export class MovimientoDesactualizadoError extends Error {
+  constructor(id: string) {
+    super(
+      `El movimiento con id "${id}" cambió desde que fue consultado`,
+    )
+    this.name = 'MovimientoDesactualizadoError'
+  }
+}
+
+export class MovimientoCashCutsNoEditableError extends Error {
+  constructor(id: string) {
+    super(
+      `El monto y desglose del movimiento generado con id "${id}" no pueden modificarse`,
+    )
+    this.name = 'MovimientoCashCutsNoEditableError'
   }
 }
 
@@ -95,31 +119,90 @@ export class MovimientoService {
     return this.repository.obtenerPagina(opciones)
   }
 
-  async actualizar(id: string, datos: DatosMovimiento): Promise<Movimiento> {
+  obtenerPorId(id: string): Promise<Movimiento | undefined> {
+    return this.repository.obtenerPorId(id)
+  }
+
+  async actualizar(
+    id: string,
+    datos: DatosMovimiento,
+    expectedActualizadoEn: string,
+  ): Promise<Movimiento> {
     const movimientoActual = await this.obtenerEditable(id)
-    const datosNormalizados = normalizarDatos(datos)
+
+    if (movimientoActual.actualizadoEn !== expectedActualizadoEn) {
+      throw new MovimientoDesactualizadoError(id)
+    }
+
+    const generadoDesdeCortes =
+      movimientoActual.source?.type === 'cash-cuts'
+    const datosNormalizados = generadoDesdeCortes
+      ? this.normalizarEdicionCashCuts(movimientoActual, datos)
+      : normalizarDatos(datos)
 
     this.validarSinErrores(datosNormalizados)
 
-    const cambios = {
-      ...datosNormalizados,
-      concepto: datosNormalizados.concepto.trim(),
-      notas: datosNormalizados.notas?.trim() || undefined,
-      actualizadoEn: new Date().toISOString(),
-    }
+    const actualizadoEn = siguienteTimestamp(
+      movimientoActual.actualizadoEn,
+    )
+    const cambios = generadoDesdeCortes
+      ? {
+          fechaMovimiento: datosNormalizados.fechaMovimiento,
+          concepto: datosNormalizados.concepto.trim(),
+          notas: datosNormalizados.notas?.trim() || undefined,
+          actualizadoEn,
+        }
+      : {
+          ...datosNormalizados,
+          concepto: datosNormalizados.concepto.trim(),
+          notas: datosNormalizados.notas?.trim() || undefined,
+          actualizadoEn,
+        }
     const movimientoActualizado: Movimiento = {
       ...movimientoActual,
       ...cambios,
     }
 
-    await this.repository.actualizar(id, cambios)
+    try {
+      await this.repository.actualizar(
+        id,
+        cambios,
+        expectedActualizadoEn,
+      )
+    } catch (error: unknown) {
+      if (
+        error instanceof MovimientoActualizacionDesactualizadaError
+      ) {
+        throw new MovimientoDesactualizadoError(id)
+      }
+
+      throw error
+    }
 
     return movimientoActualizado
   }
 
-  async eliminar(id: string): Promise<void> {
-    await this.obtenerEditable(id)
-    await this.repository.eliminar(id)
+  async eliminar(
+    id: string,
+    expectedActualizadoEn: string,
+  ): Promise<void> {
+    const movimiento = await this.obtenerEditable(id)
+
+    if (movimiento.actualizadoEn !== expectedActualizadoEn) {
+      throw new MovimientoDesactualizadoError(id)
+    }
+
+    try {
+      await this.repository.eliminar(id, expectedActualizadoEn)
+    } catch (error: unknown) {
+      if (
+        error instanceof MovimientoEliminacionDesactualizadaError
+      ) {
+        throw new MovimientoDesactualizadoError(id)
+      }
+
+      throw error
+    }
   }
 
   private validarSinErrores(datos: DatosMovimiento): void {
@@ -142,6 +225,34 @@ export class MovimientoService {
     }
 
     return movimiento
+  }
+
+  private normalizarEdicionCashCuts(
+    current: Movimiento,
+    datos: DatosMovimiento,
+  ): DatosMovimiento {
+    const datosFinancierosCoinciden =
+      datos.tipo === current.tipo &&
+      datos.categoria === current.categoria &&
+      datos.formaPago === current.formaPago &&
+      convertirPesosACentavos(datos.monto) ===
+        convertirPesosACentavos(current.monto) &&
+      desglosesEfectivoIguales(datos.billetes, current.billetes)
+
+    if (!datosFinancierosCoinciden) {
+      throw new MovimientoCashCutsNoEditableError(current.id)
+    }
+
+    return {
+      tipo: current.tipo,
+      fechaMovimiento: datos.fechaMovimiento,
+      monto: current.monto,
+      concepto: datos.concepto,
+      categoria: current.categoria,
+      formaPago: current.formaPago,
+      billetes: { ...current.billetes },
+      notas: datos.notas,
+    }
   }
 }
 

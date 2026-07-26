@@ -130,7 +130,7 @@ export function Exportar({
     try {
       await exportService.confirmarPendientes(lotePendiente)
       setMensaje(
-        `${lotePendiente.movimientoIds.length} movimientos marcados como exportados`,
+        `${lotePendiente.movimientoSnapshots.length} movimientos marcados como exportados`,
       )
       setLotePendiente(undefined)
       await recargarPendientes()
@@ -200,7 +200,8 @@ export function Exportar({
             Confirma la exportación
           </h3>
           <p className="mt-2 text-sm leading-6 text-amber-900">
-            Se generó el archivo con {lotePendiente.movimientoIds.length}{' '}
+            Se generó el archivo con{' '}
+            {lotePendiente.movimientoSnapshots.length}{' '}
             movimientos. Confirma únicamente si pudiste guardarlo o
             compartirlo correctamente.
           </p>

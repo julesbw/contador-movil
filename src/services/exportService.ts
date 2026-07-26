@@ -1,6 +1,7 @@
 import {
   MovimientosLoteDesactualizadoError,
   movimientosRepo,
+  type MovimientoSnapshot,
   type MovimientosRepository,
 } from '../db/movimientosRepo'
 import type { Movimiento } from '../models/Movimiento'
@@ -39,7 +40,7 @@ export type ArchivoExportacion = {
 
 export type LotePendiente = {
   archivo: ArchivoExportacion
-  movimientoIds: string[]
+  movimientoSnapshots: MovimientoSnapshot[]
   nombreArchivo: string
 }
 
@@ -94,7 +95,9 @@ export class ExportService {
 
     return {
       archivo,
-      movimientoIds: movimientos.map(({ id }) => id),
+      movimientoSnapshots: movimientos.map(
+        ({ id, actualizadoEn }) => ({ id, actualizadoEn }),
+      ),
       nombreArchivo: `movimientos-pendientes-${fechaParaNombre(archivo.fecha_exportacion)}.json`,
     }
   }
@@ -132,7 +135,9 @@ export class ExportService {
 
     return {
       archivo,
-      movimientoIds: movimientos.map(({ id }) => id),
+      movimientoSnapshots: movimientos.map(
+        ({ id, actualizadoEn }) => ({ id, actualizadoEn }),
+      ),
       nombreArchivo: `movimientos-pendientes-${fechaParaNombre(archivo.fecha_exportacion)}.json`,
     }
   }
@@ -151,19 +156,19 @@ export class ExportService {
 
     return {
       archivo,
-      movimientoIds: [],
+      movimientoSnapshots: [],
       nombreArchivo: `respaldo-movimientos-${fechaParaNombre(archivo.fecha_exportacion)}.json`,
     }
   }
 
   async confirmarPendientes(lote: LotePendiente): Promise<void> {
-    if (lote.movimientoIds.length === 0) {
+    if (lote.movimientoSnapshots.length === 0) {
       throw new Error('El lote no contiene movimientos pendientes')
     }
 
     try {
       await this.repository.marcarExportados(
-        lote.movimientoIds,
+        lote.movimientoSnapshots,
         lote.archivo.lote_exportacion_id,
         new Date().toISOString(),
       )

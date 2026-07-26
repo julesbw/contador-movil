@@ -1,11 +1,14 @@
 import Dexie, { type Table } from 'dexie'
 import type { BridgeProfile } from '../models/BridgeProfile'
+import type { CashCut } from '../models/CashCut'
 import type { StoredCajaSnapshot } from '../models/CajaSnapshot'
 import type { ConfigItem } from '../models/ConfigItem'
 import type { Movimiento } from '../models/Movimiento'
 
 const MOVIMIENTOS_SCHEMA =
   '&id, fechaMovimiento, tipo, categoria, estadoExportacion, loteExportacionId, creadoEn'
+const CASH_CUTS_SCHEMA =
+  '&id, date, status, movementId, storeId, createdAt'
 
 export const CONTADOR_DATABASE_NAME = 'contador_movil'
 
@@ -14,6 +17,7 @@ export class ContadorDatabase extends Dexie {
   config!: Table<ConfigItem, string>
   bridgeProfiles!: Table<BridgeProfile, string>
   cajaSnapshots!: Table<StoredCajaSnapshot, string>
+  cashCuts!: Table<CashCut, string>
 
   constructor(databaseName = CONTADOR_DATABASE_NAME) {
     super(databaseName)
@@ -29,6 +33,15 @@ export class ContadorDatabase extends Dexie {
       bridgeProfiles: '&id, sourceId, createdAt, updatedAt',
       cajaSnapshots:
         '&profileId, snapshotId, sourceId, generatedAt, syncedAt',
+    })
+
+    this.version(3).stores({
+      movimientos: MOVIMIENTOS_SCHEMA,
+      config: '&key',
+      bridgeProfiles: '&id, sourceId, createdAt, updatedAt',
+      cajaSnapshots:
+        '&profileId, snapshotId, sourceId, generatedAt, syncedAt',
+      cashCuts: CASH_CUTS_SCHEMA,
     })
   }
 }
